@@ -9,6 +9,24 @@ counter_inc_test() ->
     ?assertEqual({ok, 0}, seer:read(counter, <<"bob_the_counter">>)),
     true = persistent_term:erase({seer, <<"bob_the_counter">>}).
 
+dist_record_test() ->
+    [seer:dist_record(<<"bob_the_dist">>, N) || N <- lists:seq(1, 10)],
+    Expected1 =
+        #{n_samples => 10, min => 1, max => 10, p50 => 5, p90 => 9, p99 => 9},
+    ?assertEqual({ok, Expected1}, seer:read(dist, <<"bob_the_dist">>)),
+    [seer:dist_record(<<"bob_the_dist">>, N) || N <- lists:seq(1, 200)],
+    Expected2 =
+        #{
+            n_samples => 200,
+            min => 1,
+            max => 200,
+            p50 => 100,
+            p90 => 180,
+            p99 => 198
+        },
+    ?assertEqual({ok, Expected2}, seer:read(dist, <<"bob_the_dist">>)),
+    true = persistent_term:erase({seer, <<"bob_the_dist">>}).
+
 gauge_set_test() ->
     ok = seer:gauge_set(<<"bob_the_gauge">>, 5),
     ?assertEqual({ok, 5}, seer:read(gauge, <<"bob_the_gauge">>)),
