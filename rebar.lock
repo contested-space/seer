@@ -1,0 +1,4 @@
+[{<<"granderl">>,
+  {git,"https://github.com/adgear/granderl.git",
+       {ref,"2ca8b857fdf8be1ac945544600ec31e6e78e545f"}},
+  0}].

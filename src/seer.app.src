@@ -1,0 +1,15 @@
+{
+    application,
+    seer,
+    [
+        {description, "Atomic metrics for Erlang"},
+        {vsn, git},
+        {registered, []},
+        {mod, {seer_app, []}},
+        {applications, [kernel, stdlib]},
+        {env, []},
+        {modules, []},
+        {licenses, ["Apache 2.0"]},
+        {links, []}
+    ]
+}.
