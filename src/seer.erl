@@ -7,6 +7,7 @@
         counter_inc/1,
         counter_inc/2,
         dist_record/2,
+        dist_timing/2,
         gauge_set/2,
         read/2,
         read_all/0
@@ -26,6 +27,11 @@ dist_record(Dist, Val) ->
     {ok, Ref} = get_or_new(dist, Dist),
     N = atomics:add_get(Ref, ?DIST_RESERVOIR_SIZE + 1, 1),
     dist_record2(Ref, Val, N).
+
+-spec dist_timing(binary(), erlang:timestamp()) -> ok.
+dist_timing(Timing, TimeStamp) ->
+    Delta = timer:now_diff(os:timestamp(), TimeStamp),
+    dist_record(Timing, Delta).
 
 -spec gauge_set(binary(), integer()) -> ok.
 gauge_set(Gauge, Val) ->
