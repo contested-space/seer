@@ -8,7 +8,7 @@
         {mod, {seer_app, []}},
         {applications, [kernel, stdlib]},
         {env, []},
-        {modules, []},
+        {modules, [seer, seer_server, seer_sup]},
         {licenses, ["Apache 2.0"]},
         {links, []}
     ]

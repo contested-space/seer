@@ -1,0 +1,6 @@
+-define(APP, seer).
+-define(ENV(Key, Default), application:get_env(?APP, Key, Default)).
+-define(ENV_INTERVAL, interval).
+-define(ENV_MODE, mode).
+-define(DEFAULT_MODE, stdout).
+-define(DEFAULT_INTERVAL, 10000).
