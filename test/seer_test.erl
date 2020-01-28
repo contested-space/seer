@@ -36,6 +36,26 @@ gauge_set_test() ->
     ?assertEqual({ok, 5}, seer:read(gauge, <<"bob_the_gauge">>)),
     true = persistent_term:erase({seer, <<"bob_the_gauge">>}).
 
+histo_record_test() ->
+    [seer:histo_record(<<"bob_the_histo">>, N) || N <- lists:seq(1, 127)],
+    Expected1 =
+        #{
+            n_samples => 127,
+            percentiles
+            =>
+            #{p50 => {33, 64}, p90 => {65, 128}, p99 => {65, 128}},
+            {1, 1} => 1,
+            {2, 2} => 1,
+            {3, 4} => 2,
+            {5, 8} => 4,
+            {9, 16} => 8,
+            {17, 32} => 16,
+            {33, 64} => 32,
+            {65, 128} => 63
+        },
+    ?assertEqual({ok, Expected1}, seer:read(histo, <<"bob_the_histo">>)),
+    true = persistent_term:erase({seer, <<"bob_the_histo">>}).
+
 read_all_test() ->
     ok = seer:counter_inc(<<"bob_the_counter">>, 10),
     ok = seer:gauge_set(<<"bob_the_gauge">>, 5),
