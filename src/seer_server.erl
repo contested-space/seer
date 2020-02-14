@@ -2,8 +2,6 @@
 
 -include("seer.hrl").
 
--define(SERVER, ?MODULE).
-
 -behaviour(gen_server).
 
 -export(
@@ -16,13 +14,11 @@
         code_change/3
     ]
 ).
--export([start_link/0, stop/0]).
+-export([start_link/0]).
 
 -record(state, {mode :: undefined | stdout}).
 
-start_link() -> gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
-stop() -> gen_server:cast(?SERVER, stop).
+start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_) ->
     Mode = ?ENV(?ENV_MODE, ?DEFAULT_MODE),
@@ -30,7 +26,8 @@ init(_) ->
     case Mode of
         stdout ->
             timer:send_interval(Interval, poll_stdout),
-            {ok, #state{mode = Mode}, 0}
+            {ok, #state{mode = Mode}, 0};
+        carbon -> timer:send_interval(Interval, poll_carbon)
     end.
 
 handle_call(_, _From, State) -> {reply, {error, undefined_call}, State}.
@@ -41,6 +38,23 @@ handle_cast(_, State) -> {noreply, State}.
 handle_info(poll_stdout, State) ->
     Metrics = seer:read_all(),
     io:format("~w~n", [Metrics]),
+    {noreply, State};
+handle_info(poll_carbon, State) ->
+    Metrics = seer:read_all(),
+    CarbonStrings = seer_utils:carbon_format(Metrics),
+    case
+    gen_tcp:connect(
+        ?ENV(?ENV_CARBON_HOST, ?DEFAULT_CARBON_HOST),
+        ?ENV(?ENV_CARBON_PORT, ?DEFAULT_CARBON_PORT),
+        [binary]
+    ) of
+        {ok, Socket} ->
+            [gen_tcp:send(Socket, Metric) || Metric <- CarbonStrings],
+            gen_tcp:close(Socket);
+        {error, Reason} ->
+            % TODO: put metrics in buffer and loop for connection
+            io:format("~s~n", [Reason])
+    end,
     {noreply, State};
 handle_info(_, State) -> {noreply, State}.
 
