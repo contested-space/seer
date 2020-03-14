@@ -4,19 +4,7 @@
 
 -export([start/2, stop/1]).
 
-start(_StartType, _StartArgs) ->
-
-    seer_sup:start_link(),
-    Poller =
-        #{
-            id => seer_server,
-            start => {seer_server, start_link, []},
-            shutdown => 2000,
-            restart => permanent,
-            type => worker,
-            modules => [seer_server]
-        },
-    supervisor:start_child(seer_sup, Poller).
+start(_StartType, _StartArgs) -> seer_sup:start_link().
 
 stop(_State) ->
     ok.

@@ -23,12 +23,13 @@ start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 init(_) ->
     Mode = ?ENV(?ENV_MODE, ?DEFAULT_MODE),
     Interval = ?ENV(?ENV_INTERVAL, ?DEFAULT_INTERVAL),
-    case Mode of
-        stdout ->
-            timer:send_interval(Interval, poll_stdout),
-            {ok, #state{mode = Mode}, 0};
-        carbon -> timer:send_interval(Interval, poll_carbon)
-    end.
+    Msg =
+        case Mode of
+            stdout -> poll_stdout;
+            carbon -> poll_carbon
+        end,
+    timer:send_interval(Interval, Msg),
+    {ok, #state{mode = Mode}, 0}.
 
 handle_call(_, _From, State) -> {reply, {error, undefined_call}, State}.
 

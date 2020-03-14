@@ -5,13 +5,13 @@
 -export([carbon_format/1]).
 
 carbon_format(Metrics) ->
-    Timestamp = erlang:timestamp(),
+    Timestamp = erlang:system_time(second),
     lists:flatten([carbon_string(Metric, Timestamp) || Metric <- Metrics]).
 
 % private
 carbon_string({Type, Name, Value}, Timestamp) ->
     MetricKey = metric_key(Name),
-    TimestampBin = unix_time_binary(Timestamp),
+    TimestampBin = integer_to_binary(Timestamp),
     case Type of
         counter ->
             carbon_string(MetricKey, integer_to_binary(Value), TimestampBin);
@@ -67,6 +67,3 @@ metric_key(Name) ->
         ".",
         Name/binary
     >>.
-
-unix_time_binary({MegaSecs, Secs, _MicroSecs}) ->
-    integer_to_binary(1000000 * MegaSecs + Secs).
