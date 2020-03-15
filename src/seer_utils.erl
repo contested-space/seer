@@ -2,15 +2,17 @@
 
 -include("seer.hrl").
 
--export([carbon_format/1]).
+-export([carbon_format/3]).
 
-carbon_format(Metrics) ->
+carbon_format(Prefix, Host, Metrics) ->
     Timestamp = erlang:system_time(second),
-    lists:flatten([carbon_string(Metric, Timestamp) || Metric <- Metrics]).
+    lists:flatten(
+        [carbon_string(Prefix, Host, Metric, Timestamp) || Metric <- Metrics]
+    ).
 
 % private
-carbon_string({Type, Name, Value}, Timestamp) ->
-    MetricKey = metric_key(Name),
+carbon_string(Prefix, Host, {Type, Name, Value}, Timestamp) ->
+    MetricKey = metric_key(Prefix, Host, Name),
     TimestampBin = integer_to_binary(Timestamp),
     case Type of
         counter ->
@@ -59,11 +61,5 @@ make_key_val({Key, {_Min, Max}}) ->
 carbon_string(MetricKey, Value, Timestamp) ->
     <<MetricKey/binary, " ", Value/binary, " ", Timestamp/binary, "\n">>.
 
-metric_key(Name) ->
-    <<
-        (?ENV(?ENV_PREFIX, ?DEFAULT_PREFIX)) / binary,
-        ".",
-        (?ENV(?ENV_HOST, ?DEFAULT_HOST)) / binary,
-        ".",
-        Name/binary
-    >>.
+metric_key(Prefix, Host, Name) ->
+    <<Prefix/binary, ".", Host/binary, ".", Name/binary>>.

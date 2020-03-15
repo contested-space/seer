@@ -16,12 +16,21 @@
 ).
 -export([start_link/0]).
 
--record(state, {mode :: undefined | stdout}).
+-record(
+    state,
+    {
+        mode :: undefined | stdout,
+        prefix :: undefined | binary(),
+        host :: undefined | binary()
+    }
+).
 
 start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_) ->
     Mode = ?ENV(?ENV_MODE, ?DEFAULT_MODE),
+    Prefix = ?ENV(?ENV_PREFIX, ?DEFAULT_PREFIX),
+    Host = ?ENV(?ENV_HOST, ?DEFAULT_HOST),
     Interval = ?ENV(?ENV_INTERVAL, ?DEFAULT_INTERVAL),
     Msg =
         case Mode of
@@ -29,7 +38,7 @@ init(_) ->
             carbon -> poll_carbon
         end,
     timer:send_interval(Interval, Msg),
-    {ok, #state{mode = Mode}, 0}.
+    {ok, #state{mode = Mode, prefix = Prefix, host = Host}, 0}.
 
 handle_call(_, _From, State) -> {reply, {error, undefined_call}, State}.
 
@@ -40,9 +49,9 @@ handle_info(poll_stdout, State) ->
     Metrics = seer:read_all(),
     io:format("~w~n", [Metrics]),
     {noreply, State};
-handle_info(poll_carbon, State) ->
+handle_info(poll_carbon, #state{prefix = Prefix, host = Host} = State) ->
     Metrics = seer:read_all(),
-    CarbonStrings = seer_utils:carbon_format(Metrics),
+    CarbonStrings = seer_utils:carbon_format(Prefix, Host, Metrics),
     case
     gen_tcp:connect(
         ?ENV(?ENV_CARBON_HOST, ?DEFAULT_CARBON_HOST),
