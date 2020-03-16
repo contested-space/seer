@@ -37,15 +37,24 @@ init(_) ->
             host = ?ENV(?ENV_HOST, ?DEFAULT_HOST),
             interval = ?ENV(?ENV_INTERVAL, ?DEFAULT_INTERVAL)
         },
-    {Interval, Msg, SetupState} = setup(InitialState),
-    timer:send_after(Interval, Msg),
-    {ok, SetupState, 0}.
+    self() ! setup,
+    {ok, InitialState, 0}.
 
 handle_call(_, _From, State) -> {reply, {error, undefined_call}, State}.
 
 handle_cast(stop, State) -> {stop, normal, State};
 handle_cast(_, State) -> {noreply, State}.
 
+handle_info(setup, #state{mode = Mode, interval = Interval} = State) ->
+    {Msg, SetupState} =
+        case Mode of
+            stdout -> {poll_stdout, State};
+            carbon ->
+                {ok, Socket} = get_carbon_socket(),
+                {poll_carbon, State#state{tcp_socket = Socket}}
+        end,
+    timer:send_after(Interval, Msg),
+    {noreply, SetupState};
 handle_info(poll_stdout, #state{interval = Interval} = State) ->
     Metrics = seer:read_all(),
     io:format("~w~n", [Metrics]),
@@ -75,16 +84,6 @@ terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 % private
-setup(#state{mode = Mode, interval = Interval} = State) ->
-    {Msg, SetupState} =
-        case Mode of
-            stdout -> {poll_stdout, State};
-            carbon ->
-                {ok, Socket} = get_carbon_socket(),
-                {poll_carbon, State#state{tcp_socket = Socket}}
-        end,
-    {Interval, Msg, SetupState}.
-
 get_carbon_socket() ->
     case
     gen_tcp:connect(
