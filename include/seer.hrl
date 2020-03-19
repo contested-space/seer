@@ -3,12 +3,13 @@
 -define(ENV_PREFIX, prefix).
 -define(ENV_HOST, host).
 -define(ENV_MODE, mode).
--define(ENV_INTERVAL, interval).
+-define(ENV_POLL_INTERVAL, poll_interval).
 -define(ENV_CARBON_HOST, carbon_host).
 -define(ENV_CARBON_PORT, carbon_port).
 -define(DEFAULT_PREFIX, <<"seer">>).
 -define(DEFAULT_HOST, <<"localhost">>).
 -define(DEFAULT_MODE, carbon).
--define(DEFAULT_INTERVAL, 10000).
+-define(DEFAULT_POLL_INTERVAL, 10000).
 -define(DEFAULT_CARBON_HOST, localhost).
 -define(DEFAULT_CARBON_PORT, 2003).
+-define(TCP_RECONNECTION_INTERVAL, 250).

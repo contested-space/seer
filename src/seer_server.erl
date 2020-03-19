@@ -19,12 +19,18 @@
 -record(
     state,
     {
-        mode :: undefined | stdout | carbon | carbon_offline,
+        mode
+        ::
+        undefined
+        | stdout
+        | carbon
+        | carbon_offline
+        | carbon_reconnected,
         prefix :: undefined | binary(),
         host :: undefined | binary(),
         tcp_socket :: undefined | gen_tcp:socket(),
-        interval :: undefined | non_neg_integer(),
-        carbon_buffer = [] :: list()
+        poll_interval :: undefined | non_neg_integer(),
+        carbon_buffer = [] :: list(binary())
     }
 ).
 
@@ -36,7 +42,7 @@ init(_) ->
             mode = ?ENV(?ENV_MODE, ?DEFAULT_MODE),
             prefix = ?ENV(?ENV_PREFIX, ?DEFAULT_PREFIX),
             host = ?ENV(?ENV_HOST, ?DEFAULT_HOST),
-            interval = ?ENV(?ENV_INTERVAL, ?DEFAULT_INTERVAL)
+            poll_interval = ?ENV(?ENV_POLL_INTERVAL, ?DEFAULT_POLL_INTERVAL)
         },
     self() ! setup,
     {ok, InitialState, 0}.
@@ -46,7 +52,7 @@ handle_call(_, _From, State) -> {reply, {error, undefined_call}, State}.
 handle_cast(stop, State) -> {stop, normal, State};
 handle_cast(_, State) -> {noreply, State}.
 
-handle_info(setup, #state{mode = Mode, interval = Interval} = State) ->
+handle_info(setup, #state{mode = Mode, poll_interval = Interval} = State) ->
     {Msg, SetupState} =
         case Mode of
             stdout -> {poll_stdout, State};
@@ -54,9 +60,8 @@ handle_info(setup, #state{mode = Mode, interval = Interval} = State) ->
         end,
     timer:send_after(Interval, Msg),
     {noreply, SetupState};
-handle_info(poll_stdout, #state{interval = Interval} = State) ->
+handle_info(poll_stdout, #state{poll_interval = Interval} = State) ->
     Metrics = seer:read_all(),
-    io:format("~w~n", [Metrics]),
     timer:send_after(Interval, poll_stdout),
     {noreply, State};
 handle_info(
@@ -65,7 +70,7 @@ handle_info(
             prefix = Prefix,
             host = Host,
             tcp_socket = Socket,
-            interval = Interval
+            poll_interval = Interval
         }
         =
         State
@@ -78,6 +83,7 @@ handle_info(
             {noreply, State};
         {error, UnsentStrings} ->
             timer:send_after(Interval, poll_carbon_offline),
+            timer:send_after(?TCP_RECONNECTION_INTERVAL, carbon_reconnect),
             {
                 noreply,
                 State#state{
@@ -86,37 +92,15 @@ handle_info(
                 }
             }
     end;
-handle_info(poll_carbon_offline, #state{carbon_buffer = Buffer} = State) ->
-    case carbon_connect() of
-        {ok, Socket} ->
-            case carbon_send_buffer(Socket, Buffer) of
-                ok ->
-                    self() ! poll_carbon,
-                    {
-                        noreply,
-                        State#state{
-                            mode = carbon,
-                            tcp_socket = Socket,
-                            carbon_buffer = []
-                        }
-                    };
-                {error, NewBuffer} ->
-                    carbon_buffer_poll(State#state{carbon_buffer = NewBuffer})
-            end;
-        {error, _} -> carbon_buffer_poll(State)
-    end;
-handle_info(_, State) -> {noreply, State}.
-
-terminate(_Reason, _State) -> ok.
-
-code_change(_OldVsn, State, _Extra) -> {ok, State}.
-
-% private
-carbon_buffer_poll(
+handle_info(poll_carbon_offline, #state{mode = carbon_reconnected} = State) ->
+    self() ! poll_carbon,
+    {noreply, State#state{mode = carbon}};
+handle_info(
+    poll_carbon_offline,
     #state{
             prefix = Prefix,
             host = Host,
-            interval = Interval,
+            poll_interval = Interval,
             carbon_buffer = Buffer
         }
         =
@@ -125,12 +109,44 @@ carbon_buffer_poll(
     Metrics = seer:read_all(),
     CarbonStrings = seer_utils:carbon_format(Prefix, Host, Metrics),
     timer:send_after(Interval, poll_carbon_offline),
-    {noreply, State#state{carbon_buffer = [CarbonStrings | Buffer]}}.
+    {noreply, State#state{carbon_buffer = [CarbonStrings | Buffer]}};
+handle_info(carbon_reconnect, #state{carbon_buffer = Buffer} = State) ->
+    case carbon_connect() of
+        {ok, Socket} ->
+            case carbon_send_buffer(Socket, Buffer) of
+                ok ->
+                    {
+                        noreply,
+                        State#state{
+                            mode = carbon_reconnected,
+                            tcp_socket = Socket,
+                            carbon_buffer = []
+                        }
+                    };
+                {error, NewBuffer} ->
+                    timer:send_after(
+                        ?TCP_RECONNECTION_INTERVAL,
+                        carbon_reconnect
+                    ),
+                    {noreply, State#state{carbon_buffer = NewBuffer}}
+            end;
+        {error, _} ->
+            timer:send_after(?TCP_RECONNECTION_INTERVAL, carbon_reconnect),
+            {noreply, State}
+    end;
+handle_info(_, State) -> {noreply, State}.
 
+terminate(_Reason, _State) -> ok.
+
+code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+% private
 carbon_setup(State) ->
     case carbon_connect() of
         {ok, Socket} -> {poll_carbon, State#state{tcp_socket = Socket}};
-        {error, _} -> {poll_carbon_offline, State#state{mode = carbon_offline}}
+        {error, _} ->
+            timer:send_after(?TCP_RECONNECTION_INTERVAL, carbon_reconnect),
+            {poll_carbon_offline, State#state{mode = carbon_offline}}
     end.
 
 carbon_connect() ->
@@ -140,6 +156,8 @@ carbon_connect() ->
         [binary]
     ).
 
+-spec carbon_send_buffer(gen_tcp:socket(), list(list(binary()))) ->
+    ok | {error, list(list(binary()))}.
 carbon_send_buffer(_Socket, []) -> ok;
 carbon_send_buffer(Socket, [Batch | Buffer]) ->
     case carbon_send_batch(Socket, Batch) of
