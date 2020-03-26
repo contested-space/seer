@@ -62,6 +62,7 @@ handle_info(setup, #state{mode = Mode, poll_interval = Interval} = State) ->
     {noreply, SetupState};
 handle_info(poll_stdout, #state{poll_interval = Interval} = State) ->
     Metrics = seer:read_all(),
+    io:format("~w~n", [Metrics]),
     timer:send_after(Interval, poll_stdout),
     {noreply, State};
 handle_info(
