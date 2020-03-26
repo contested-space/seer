@@ -3,22 +3,19 @@
 -define(DIST_RESERVOIR_SIZE, 200).
 -define(HISTO_NUM_BUCKETS, 64).
 
--export(
-    [
-        counter_inc/1,
-        counter_inc/2,
-        dist_record/2,
-        dist_timing/2,
-        gauge_set/2,
-        histo_record/2,
-        histo_timing/2,
-        read/2,
-        read_all/0
-    ]
-).
+-export([counter_inc/1,
+         counter_inc/2,
+         dist_record/2,
+         dist_timing/2,
+         gauge_set/2,
+         histo_record/2,
+         histo_timing/2,
+         read/2,
+         read_all/0]).
 
 -spec counter_inc(binary()) -> ok.
-counter_inc(Counter) -> counter_inc(Counter, 1).
+counter_inc(Counter) ->
+    counter_inc(Counter, 1).
 
 -spec counter_inc(binary(), integer()) -> ok.
 counter_inc(Counter, Val) ->
@@ -56,52 +53,55 @@ read(Type, Name) ->
     {ok, read_metric(Type, Name, Ref)}.
 
 read_all() ->
-    [
-        {Type, Name, read_metric(Type, Name, Ref)}
-        || {{?MODULE, Name}, {Type, Ref}} <- persistent_term:get()
-    ].
+    [{Type, Name, read_metric(Type, Name, Ref)} || {{?MODULE, Name}, {Type, Ref}} <- persistent_term:get()].
 
 % private
 dist_record2(Ref, Val, N) when N =< ?DIST_RESERVOIR_SIZE ->
     atomics:put(Ref, N, Val);
 dist_record2(Ref, Val, N) ->
     case granderl:uniform(N) of
-        X when X < ?DIST_RESERVOIR_SIZE -> atomics:put(Ref, X, Val);
-        _ -> ok
+      X when X < ?DIST_RESERVOIR_SIZE ->
+          atomics:put(Ref, X, Val);
+      _ ->
+          ok
     end.
 
 get_or_new(Type, Name) ->
     case get(Type, Name) of
-        {ok, Ref} -> {ok, Ref};
-        {error, undefined} -> {ok, new(Type, Name)};
-        {error, _} = E -> E
+      {ok, Ref} ->
+          {ok, Ref};
+      {error, undefined} ->
+          {ok, new(Type, Name)};
+      {error, _} = E ->
+          E
     end.
 
 get(Type, Name) when is_binary(Name) ->
     case persistent_term:get({?MODULE, Name}, {error, undefined}) of
-        {Type, Ref} -> {ok, Ref};
-        {error, undefined} = E -> E;
-        {WrongType, _Ref} -> {error, {exists_as, WrongType}}
+      {Type, Ref} ->
+          {ok, Ref};
+      {error, undefined} = E ->
+          E;
+      {WrongType, _Ref} ->
+          {error, {exists_as, WrongType}}
     end;
-get(_Type, _Name) -> {error, metric_name_not_a_binary}.
+get(_Type, _Name) ->
+    {error, metric_name_not_a_binary}.
 
 histo_percentiles(N, Buckets, PercentileIdxes) ->
     histo_percentiles(N, Buckets, PercentileIdxes, #{}).
 
-histo_percentiles(_N, _Buckets, [], Res) -> Res;
-histo_percentiles(
-    N,
-    Bs = [{BucketKey, BucketSamples} | _],
-    Ps = [{PercentileKey, PercentileIdx} | _],
-    Res
-) ->
+histo_percentiles(_N, _Buckets, [], Res) ->
+    Res;
+histo_percentiles(N, Bs = [{BucketKey, BucketSamples} | _], Ps = [{PercentileKey, PercentileIdx} | _], Res) ->
     HiIdx = N,
     LoIdx = N - BucketSamples,
     case PercentileIdx >= LoIdx andalso PercentileIdx =< HiIdx of
-        true ->
-            Res2 = Res#{PercentileKey => BucketKey},
-            histo_percentiles(N, Bs, tl(Ps), Res2);
-        false -> histo_percentiles(LoIdx, tl(Bs), Ps, Res)
+      true ->
+          Res2 = Res#{PercentileKey => BucketKey},
+          histo_percentiles(N, Bs, tl(Ps), Res2);
+      false ->
+          histo_percentiles(LoIdx, tl(Bs), Ps, Res)
     end.
 
 histo_record2(Ref, Val) ->
@@ -126,67 +126,50 @@ new(histo, Name) ->
     persistent_term:put({?MODULE, Name}, {histo, Ref}),
     Ref.
 
-nths(Idxs, Lst) -> nths(Idxs, 1, Lst, []).
+nths(Idxs, Lst) ->
+    nths(Idxs, 1, Lst, []).
 
-nths([], _N, _Lst, Res) -> Res;
+nths([], _N, _Lst, Res) ->
+    Res;
 nths([Idx | IdxRest], Idx, Lst, Res) ->
     nths(IdxRest, Idx, Lst, [hd(Lst) | Res]);
 nths(Idxs = [Idx | _], Idx2, Lst, Res) when Idx > Idx2 ->
     nths(Idxs, Idx2 + 1, tl(Lst), Res).
 
-read_metric(counter, _Name, Ref) -> atomics:exchange(Ref, 1, 0);
-read_metric(gauge, _Name, Ref) -> atomics:get(Ref, 1);
+read_metric(counter, _Name, Ref) ->
+    atomics:exchange(Ref, 1, 0);
+read_metric(gauge, _Name, Ref) ->
+    atomics:get(Ref, 1);
 read_metric(dist, Name, Ref) ->
     new(dist, Name),
     N = atomics:get(Ref, ?DIST_RESERVOIR_SIZE + 1),
-    Samples =
-        [
-            atomics:get(Ref, Idx)
-            || Idx <- lists:seq(1, min(N, ?DIST_RESERVOIR_SIZE))
-        ],
+    Samples = [atomics:get(Ref, Idx) || Idx <- lists:seq(1, min(N, ?DIST_RESERVOIR_SIZE))],
     SortedSamples = lists:sort(Samples),
-    [Max, P99, P90, P50, Min] =
-        case SortedSamples of
-            [] -> [0, 0, 0, 0, 0];
-            _ ->
-                nths(summary_stats_idxs(N, ?DIST_RESERVOIR_SIZE), SortedSamples)
-        end,
-    #{
-        n_samples => N,
-        min => Min,
-        max => Max,
-        p50 => P50,
-        p90 => P90,
-        p99 => P99
-    };
+    [Max, P99, P90, P50, Min] = case SortedSamples of
+                                  [] ->
+                                      [0, 0, 0, 0, 0];
+                                  _ ->
+                                      nths(summary_stats_idxs(N, ?DIST_RESERVOIR_SIZE), SortedSamples)
+                                end,
+    #{n_samples => N, min => Min, max => Max, p50 => P50, p90 => P90, p99 => P99};
 read_metric(histo, Name, Ref) ->
     new(histo, Name),
     % Buckets must be in descending order
-    {Buckets, N} =
-        lists:foldl(
-            fun
-                (Idx, {Bs, Sum}) ->
-                    case atomics:get(Ref, Idx) of
-                        0 -> {Bs, Sum};
-                        Samples ->
-                            Key =
-                                {
-                                    trunc(math:pow(2, Idx - 2)) + 1,
-                                    trunc(math:pow(2, Idx - 1))
-                                },
-                            {[{Key, Samples} | Bs], Sum + Samples}
-                    end
-            end,
-            {[], 0},
-            lists:seq(1, ?HISTO_NUM_BUCKETS)
-        ),
+    {Buckets, N} = lists:foldl(fun (Idx, {Bs, Sum}) ->
+                                       case atomics:get(Ref, Idx) of
+                                         0 ->
+                                             {Bs, Sum};
+                                         Samples ->
+                                             Key = {trunc(math:pow(2, Idx - 2)) + 1, trunc(math:pow(2, Idx - 1))},
+                                             {[{Key, Samples} | Bs], Sum + Samples}
+                                       end
+                               end,
+                               {[], 0},
+                               lists:seq(1, ?HISTO_NUM_BUCKETS)),
     % PercentileIdxes must be in descending order
-    PercentileIdxes =
-        [
-            {p99, max(1, floor(0.99 * N))},
-            {p90, max(1, floor(0.9 * N))},
-            {p50, max(1, floor(0.5 * N))}
-        ],
+    PercentileIdxes = [{p99, max(1, floor(0.99 * N))},
+                       {p90, max(1, floor(0.9 * N))},
+                       {p50, max(1, floor(0.5 * N))}],
     Percentiles = histo_percentiles(N, Buckets, PercentileIdxes),
     Map = maps:from_list(Buckets),
     Map#{percentiles => Percentiles, n_samples => N}.
@@ -194,10 +177,5 @@ read_metric(histo, Name, Ref) ->
 summary_stats_idxs(NumSamples, Size) when NumSamples < Size ->
     summary_stats_idxs(NumSamples, NumSamples);
 summary_stats_idxs(_Samples, Size) ->
-    [
-        1,
-        max(1, floor(0.5 * Size)),
-        max(1, floor(0.9 * Size)),
-        max(1, floor(0.99 * Size)),
-        Size
-    ].
+    [1, max(1, floor(0.5 * Size)), max(1, floor(0.9 * Size)), max(1, floor(0.99 * Size)), Size].
+
