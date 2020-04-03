@@ -30,9 +30,11 @@
         host :: undefined | binary(),
         tcp_socket :: undefined | gen_tcp:socket(),
         poll_interval :: undefined | non_neg_integer(),
-        carbon_buffer = [] :: list(binary())
+        carbon_buffer = [] :: list(carbon_batch())
     }
 ).
+
+-type state() :: #state{}.
 
 start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -142,6 +144,7 @@ terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 % private
+-spec carbon_setup(state()) -> {atom(), state()}.
 carbon_setup(State) ->
     case carbon_connect() of
         {ok, Socket} -> {poll_carbon, State#state{tcp_socket = Socket}};
@@ -150,6 +153,7 @@ carbon_setup(State) ->
             {poll_carbon_offline, State#state{mode = carbon_offline}}
     end.
 
+-spec carbon_connect() -> {ok, gen_tcp:socket()} | {error, term()}.
 carbon_connect() ->
     gen_tcp:connect(
         ?ENV(?ENV_CARBON_HOST, ?DEFAULT_CARBON_HOST),
@@ -157,7 +161,7 @@ carbon_connect() ->
         [binary]
     ).
 
--spec carbon_send_buffer(gen_tcp:socket(), list(list(binary()))) ->
+-spec carbon_send_buffer(gen_tcp:socket(), list(carbon_batch())) ->
     ok | {error, list(list(binary()))}.
 carbon_send_buffer(_Socket, []) -> ok;
 carbon_send_buffer(Socket, [Batch | Buffer]) ->
@@ -166,11 +170,13 @@ carbon_send_buffer(Socket, [Batch | Buffer]) ->
         {error, UnsentStrings} -> {error, [UnsentStrings | Buffer]}
     end.
 
--spec carbon_send_batch(gen_tcp:socket(), list(binary())) ->
+-spec carbon_send_batch(gen_tcp:socket(), carbon_batch()) ->
     ok | {error, list(binary())}.
 carbon_send_batch(Socket, MetricStrings) ->
     carbon_send_batch(Socket, MetricStrings, []).
 
+-spec carbon_send_batch(gen_tcp:socket(), carbon_batch(), carbon_batch()) ->
+    ok | {error, carbon_batch()}.
 carbon_send_batch(_Socket, [], UnsentStrings) ->
     case UnsentStrings of
         [] -> ok;

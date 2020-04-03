@@ -4,6 +4,7 @@
 
 -export([carbon_format/3]).
 
+-spec carbon_format(binary(), binary(), list(read_metric())) -> carbon_batch().
 carbon_format(Prefix, Host, Metrics) ->
     Timestamp = erlang:system_time(second),
     lists:flatten(
@@ -11,6 +12,8 @@ carbon_format(Prefix, Host, Metrics) ->
     ).
 
 % private
+-spec carbon_string(binary(), binary(), read_metric(), integer()) ->
+    carbon_string() | carbon_batch().
 carbon_string(Prefix, Host, {Type, Name, Value}, Timestamp) ->
     MetricKey = metric_key(Prefix, Host, Name),
     TimestampBin = integer_to_binary(Timestamp),
@@ -52,14 +55,20 @@ carbon_string(Prefix, Host, {Type, Name, Value}, Timestamp) ->
             ]
     end.
 
+-spec make_key_values(#{histo_percentile() => histo_bucket_key()} | #{}) ->
+    list({binary(), binary()}).
 make_key_values(Percentiles) ->
     lists:map(fun make_key_val/1, maps:to_list(Percentiles)).
 
+-spec make_key_val({histo_percentile(), histo_bucket_key()}) ->
+    {binary(), binary()}.
 make_key_val({Key, {_Min, Max}}) ->
     {atom_to_binary(Key, latin1), integer_to_binary(Max)}.
 
+-spec carbon_string(binary(), binary(), binary()) -> carbon_string().
 carbon_string(MetricKey, Value, Timestamp) ->
     <<MetricKey/binary, " ", Value/binary, " ", Timestamp/binary, "\n">>.
 
+-spec metric_key(binary(), binary(), metric_name()) -> binary().
 metric_key(Prefix, Host, Name) ->
     <<Prefix/binary, ".", Host/binary, ".", Name/binary>>.

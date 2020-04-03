@@ -13,3 +13,17 @@
 -define(DEFAULT_CARBON_HOST, localhost).
 -define(DEFAULT_CARBON_PORT, 2003).
 -define(TCP_RECONNECTION_INTERVAL, 250).
+
+-type carbon_string() :: binary().
+-type carbon_batch() :: list(carbon_string()).
+-type metric_name() :: binary().
+-type metric_type() :: counter | gauge | dist | histo.
+-type read_value() :: term().
+-type read_metric() :: {metric_type(), metric_name(), read_value()}.
+-type histo_bucket_key() :: {non_neg_integer(), non_neg_integer()}.
+-type histo_bucket() :: {histo_bucket_key(), non_neg_integer()}.
+-type histo_percentile() :: p50 | p90 | p99.
+-type histo_percentile_index() :: {histo_percentile(), non_neg_integer()}.
+-type dist_stats() :: list(integer()).
+-type dist_stats_indexes() :: list(integer()).
+-type dist_samples() :: list(integer()).
