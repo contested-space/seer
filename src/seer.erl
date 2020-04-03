@@ -171,37 +171,68 @@ read_metric(counter, _Name, Ref) -> atomics:exchange(Ref, 1, 0);
 read_metric(gauge, _Name, Ref) -> atomics:get(Ref, 1);
 read_metric(dist, Name, Ref) ->
     new(dist, Name),
-    N = atomics:get(Ref, ?DIST_RESERVOIR_SIZE + 1),
-    Samples = [atomics:get(Ref, Idx) || Idx <- lists:seq(1, min(N, ?DIST_RESERVOIR_SIZE))],
-    SortedSamples = lists:sort(Samples),
-    [Max, P99, P90, P50, Min] = case SortedSamples of
-                                  [] ->
-                                      [0, 0, 0, 0, 0];
-                                  _ ->
-                                      nths(summary_stats_idxs(N, ?DIST_RESERVOIR_SIZE), SortedSamples)
-                                end,
-    #{n_samples => N, min => Min, max => Max, p50 => P50, p90 => P90, p99 => P99};
+    case atomics:get(Ref, ?DIST_RESERVOIR_SIZE + 1) of
+        0 -> empty;
+        N ->
+            Samples =
+                [
+                    atomics:get(Ref, Idx)
+                    || Idx <- lists:seq(1, min(N, ?DIST_RESERVOIR_SIZE))
+                ],
+            SortedSamples = lists:sort(Samples),
+            [Max, P99, P90, P50, Min] =
+                case SortedSamples of
+                    [] -> [0, 0, 0, 0, 0];
+                    _ ->
+                        nths(
+                            summary_stats_idxs(N, ?DIST_RESERVOIR_SIZE),
+                            SortedSamples
+                        )
+                end,
+            #{
+                n_samples => N,
+                min => Min,
+                max => Max,
+                p50 => P50,
+                p90 => P90,
+                p99 => P99
+            }
+    end;
 read_metric(histo, Name, Ref) ->
     new(histo, Name),
     % Buckets must be in descending order
-    {Buckets, N} = lists:foldl(fun (Idx, {Bs, Sum}) ->
-                                       case atomics:get(Ref, Idx) of
-                                         0 ->
-                                             {Bs, Sum};
-                                         Samples ->
-                                             Key = {trunc(math:pow(2, Idx - 2)) + 1, trunc(math:pow(2, Idx - 1))},
-                                             {[{Key, Samples} | Bs], Sum + Samples}
-                                       end
-                               end,
-                               {[], 0},
-                               lists:seq(1, ?HISTO_NUM_BUCKETS)),
-    % PercentileIdxes must be in descending order
-    PercentileIdxes = [{p99, max(1, floor(0.99 * N))},
-                       {p90, max(1, floor(0.9 * N))},
-                       {p50, max(1, floor(0.5 * N))}],
-    Percentiles = histo_percentiles(N, Buckets, PercentileIdxes),
-    Map = maps:from_list(Buckets),
-    Map#{percentiles => Percentiles, n_samples => N}.
+    {Buckets, N} =
+        lists:foldl(
+            fun
+                (Idx, {Bs, Sum}) ->
+                    case atomics:get(Ref, Idx) of
+                        0 -> {Bs, Sum};
+                        Samples ->
+                            Key =
+                                {
+                                    trunc(math:pow(2, Idx - 2)) + 1,
+                                    trunc(math:pow(2, Idx - 1))
+                                },
+                            {[{Key, Samples} | Bs], Sum + Samples}
+                    end
+            end,
+            {[], 0},
+            lists:seq(1, ?HISTO_NUM_BUCKETS)
+        ),
+    case N of
+        0 -> empty;
+        _ ->
+            % PercentileIdxes must be in descending order
+            PercentileIdxes =
+                [
+                    {p99, max(1, floor(0.99 * N))},
+                    {p90, max(1, floor(0.9 * N))},
+                    {p50, max(1, floor(0.5 * N))}
+                ],
+            Percentiles = histo_percentiles(N, Buckets, PercentileIdxes),
+            Map = maps:from_list(Buckets),
+            Map#{percentiles => Percentiles, n_samples => N}
+    end.
 
 -spec summary_stats_idxs(integer(), integer()) -> dist_stats().
 summary_stats_idxs(NumSamples, Size) when NumSamples < Size ->

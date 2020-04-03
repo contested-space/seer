@@ -17,42 +17,55 @@ carbon_format(Prefix, Host, Metrics) ->
 carbon_string(Prefix, Host, {Type, Name, Value}, Timestamp) ->
     MetricKey = metric_key(Prefix, Host, Name),
     TimestampBin = integer_to_binary(Timestamp),
-    case Type of
-        counter ->
-            carbon_string(MetricKey, integer_to_binary(Value), TimestampBin);
-        gauge ->
-            carbon_string(MetricKey, integer_to_binary(Value), TimestampBin);
-        dist ->
-            [
-                carbon_string(
-                    <<
-                        MetricKey/binary,
-                        ".",
-                        (atom_to_binary(Key, latin1)) / binary
-                    >>,
-                    integer_to_binary(Val),
-                    TimestampBin
-                )
-                || {Key, Val} <- maps:to_list(Value)
-            ];
-        histo ->
-            #{n_samples := NSamples, percentiles := Percentiles} = Value,
-            [
-                carbon_string(
-                    <<MetricKey/binary, ".n_samples">>,
-                    integer_to_binary(NSamples),
-                    TimestampBin
-                )
-                |
-                [
+    case Value of
+        empty -> [];
+        _ ->
+            case Type of
+                counter ->
                     carbon_string(
-                        <<MetricKey/binary, ".", Key/binary>>,
-                        Val,
+                        MetricKey,
+                        integer_to_binary(Value),
                         TimestampBin
-                    )
-                    || {Key, Val} <- make_key_values(Percentiles)
-                ]
-            ]
+                    );
+                gauge ->
+                    carbon_string(
+                        MetricKey,
+                        integer_to_binary(Value),
+                        TimestampBin
+                    );
+                dist ->
+                    [
+                        carbon_string(
+                            <<
+                                MetricKey/binary,
+                                ".",
+                                (atom_to_binary(Key, latin1)) / binary
+                            >>,
+                            integer_to_binary(Val),
+                            TimestampBin
+                        )
+                        || {Key, Val} <- maps:to_list(Value)
+                    ];
+                histo ->
+                    #{n_samples := NSamples, percentiles := Percentiles} =
+                        Value,
+                    [
+                        carbon_string(
+                            <<MetricKey/binary, ".n_samples">>,
+                            integer_to_binary(NSamples),
+                            TimestampBin
+                        )
+                        |
+                        [
+                            carbon_string(
+                                <<MetricKey/binary, ".", Key/binary>>,
+                                Val,
+                                TimestampBin
+                            )
+                            || {Key, Val} <- make_key_values(Percentiles)
+                        ]
+                    ]
+            end
     end.
 
 -spec make_key_values(#{histo_percentile() => histo_bucket_key()} | #{}) ->
