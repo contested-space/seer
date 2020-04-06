@@ -11,19 +11,10 @@ counter_inc_test() ->
 
 dist_record_test() ->
     [seer:dist_record(<<"bob_the_dist">>, N) || N <- lists:seq(1, 10)],
-    Expected1 =
-        #{n_samples => 10, min => 1, max => 10, p50 => 5, p90 => 9, p99 => 9},
+    Expected1 = #{n_samples => 10, min => 1, max => 10, p50 => 5, p90 => 9, p99 => 9},
     ?assertEqual({ok, Expected1}, seer:read(dist, <<"bob_the_dist">>)),
     [seer:dist_record(<<"bob_the_dist">>, N) || N <- lists:seq(1, 200)],
-    Expected2 =
-        #{
-            n_samples => 200,
-            min => 1,
-            max => 200,
-            p50 => 100,
-            p90 => 180,
-            p99 => 198
-        },
+    Expected2 = #{n_samples => 200, min => 1, max => 200, p50 => 100, p90 => 180, p99 => 198},
     ?assertEqual({ok, Expected2}, seer:read(dist, <<"bob_the_dist">>)),
     true = persistent_term:erase({seer, <<"bob_the_dist">>}).
 
@@ -38,40 +29,34 @@ gauge_set_test() ->
 
 histo_record_test() ->
     [seer:histo_record(<<"bob_the_histo">>, N) || N <- lists:seq(1, 127)],
-    Expected1 =
-        #{
-            n_samples => 127,
-            percentiles
-            =>
-            #{p50 => {33, 64}, p90 => {65, 128}, p99 => {65, 128}},
-            {1, 1} => 1,
-            {2, 2} => 1,
-            {3, 4} => 2,
-            {5, 8} => 4,
-            {9, 16} => 8,
-            {17, 32} => 16,
-            {33, 64} => 32,
-            {65, 128} => 63
-        },
+    Expected1 = #{n_samples => 127,
+                  percentiles => #{p50 => {33, 64}, p90 => {65, 128}, p99 => {65, 128}},
+                  {1, 1} => 1,
+                  {2, 2} => 1,
+                  {3, 4} => 2,
+                  {5, 8} => 4,
+                  {9, 16} => 8,
+                  {17, 32} => 16,
+                  {33, 64} => 32,
+                  {65, 128} => 63},
     ?assertEqual({ok, Expected1}, seer:read(histo, <<"bob_the_histo">>)),
     true = persistent_term:erase({seer, <<"bob_the_histo">>}).
 
 read_all_test() ->
     ok = seer:counter_inc(<<"bob_the_counter">>, 10),
     ok = seer:gauge_set(<<"bob_the_gauge">>, 5),
-    Map =
-        lists:foldl(
-            fun ({Type, Name, Val}, Acc) -> Acc#{{Type, Name} => Val} end,
-            #{},
-            seer:read_all()
-        ),
+    Map = lists:foldl(fun ({Type, Name, Val}, Acc) ->
+                              Acc#{{Type, Name} => Val}
+                      end,
+                      #{},
+                      seer:read_all()),
     ?assertMatch(#{{counter, <<"bob_the_counter">>} := 10}, Map),
     ?assertMatch(#{{gauge, <<"bob_the_gauge">>} := 5}, Map),
-    Map2 =
-        lists:foldl(
-            fun ({Type, Name, Val}, Acc) -> Acc#{{Type, Name} => Val} end,
-            #{},
-            seer:read_all()
-        ),
+    Map2 = lists:foldl(fun ({Type, Name, Val}, Acc) ->
+                               Acc#{{Type, Name} => Val}
+                       end,
+                       #{},
+                       seer:read_all()),
     ?assertMatch(#{{counter, <<"bob_the_counter">>} := 0}, Map2),
     ?assertMatch(#{{gauge, <<"bob_the_gauge">>} := 5}, Map2).
+
