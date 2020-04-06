@@ -15,7 +15,7 @@
 -define(TCP_RECONNECTION_INTERVAL, 250).
 
 -type carbon_string() :: binary().
--type carbon_batch() :: list(carbon_string()).
+-type carbon_batch() :: [carbon_string()].
 -type metric_name() :: binary().
 -type metric_type() :: counter | gauge | dist | histo.
 -type read_value() :: term().
@@ -24,6 +24,7 @@
 -type histo_bucket() :: {histo_bucket_key(), non_neg_integer()}.
 -type histo_percentile() :: p50 | p90 | p99.
 -type histo_percentile_index() :: {histo_percentile(), non_neg_integer()}.
--type dist_stats() :: list(integer()).
--type dist_stats_indexes() :: list(integer()).
--type dist_samples() :: list(integer()).
+-type dist_stats() :: [integer()].
+-type dist_stats_indexes() :: [integer()].
+-type dist_samples() :: [integer()].
+

@@ -12,15 +12,12 @@ start_link() ->
 
 init([]) ->
     SupFlags = #{strategy => one_for_all, intensity => 0, period => 1},
-    Poller =
-        #{
-            id => seer_server,
-            start => {seer_server, start_link, []},
-            shutdown => 2000,
-            restart => permanent,
-            type => worker,
-            modules => [seer_server]
-        },
+    Poller = #{id => seer_server,
+               start => {seer_server, start_link, []},
+               shutdown => 2000,
+               restart => permanent,
+               type => worker,
+               modules => [seer_server]},
     ChildSpecs = [Poller],
     {ok, {SupFlags, ChildSpecs}}.
 
