@@ -6,12 +6,14 @@
 -define(ENV_POLL_INTERVAL, poll_interval).
 -define(ENV_CARBON_HOST, carbon_host).
 -define(ENV_CARBON_PORT, carbon_port).
+-define(ENV_MAX_BUFFER_SIZE, max_buffer_size).
 -define(DEFAULT_PREFIX, <<"seer">>).
 -define(DEFAULT_HOST, <<"localhost">>).
 -define(DEFAULT_MODE, carbon).
 -define(DEFAULT_POLL_INTERVAL, 10000).
 -define(DEFAULT_CARBON_HOST, localhost).
 -define(DEFAULT_CARBON_PORT, 2003).
+-define(DEFAULT_MAX_BUFFER_SIZE, 60).
 -define(TCP_RECONNECTION_INTERVAL, 250).
 
 -type carbon_string() :: binary().

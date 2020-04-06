@@ -30,7 +30,9 @@
         host :: undefined | binary(),
         tcp_socket :: undefined | gen_tcp:socket(),
         poll_interval :: undefined | non_neg_integer(),
-        carbon_buffer = [] :: list(carbon_batch())
+        carbon_buffer = [] :: list(carbon_batch()),
+        buffer_size = 0 :: non_neg_integer(),
+        max_buffer_size :: non_neg_integer()
     }
 ).
 
@@ -44,7 +46,9 @@ init(_) ->
             mode = ?ENV(?ENV_MODE, ?DEFAULT_MODE),
             prefix = ?ENV(?ENV_PREFIX, ?DEFAULT_PREFIX),
             host = ?ENV(?ENV_HOST, ?DEFAULT_HOST),
-            poll_interval = ?ENV(?ENV_POLL_INTERVAL, ?DEFAULT_POLL_INTERVAL)
+            poll_interval = ?ENV(?ENV_POLL_INTERVAL, ?DEFAULT_POLL_INTERVAL),
+            max_buffer_size =
+                ?ENV(?ENV_MAX_BUFFER_SIZE, ?DEFAULT_MAX_BUFFER_SIZE)
         },
     self() ! setup,
     {ok, InitialState, 0}.
@@ -104,15 +108,25 @@ handle_info(
             prefix = Prefix,
             host = Host,
             poll_interval = Interval,
-            carbon_buffer = Buffer
+            carbon_buffer = Buffer,
+            buffer_size = BufferSize,
+            max_buffer_size = MaxBufferSize
         }
         =
         State
 ) ->
     Metrics = seer:read_all(),
     CarbonStrings = seer_utils:carbon_format(Prefix, Host, Metrics),
+    {NewBuffer, NewBufferSize} =
+        case BufferSize < MaxBufferSize of
+            true -> {[CarbonStrings | Buffer], BufferSize + 1};
+            false -> {[CarbonStrings | lists:droplast(Buffer)], BufferSize}
+        end,
     timer:send_after(Interval, poll_carbon_offline),
-    {noreply, State#state{carbon_buffer = [CarbonStrings | Buffer]}};
+    {
+        noreply,
+        State#state{carbon_buffer = NewBuffer, buffer_size = NewBufferSize}
+    };
 handle_info(carbon_reconnect, #state{carbon_buffer = Buffer} = State) ->
     case carbon_connect() of
         {ok, Socket} ->
@@ -123,7 +137,8 @@ handle_info(carbon_reconnect, #state{carbon_buffer = Buffer} = State) ->
                         State#state{
                             mode = carbon_reconnected,
                             tcp_socket = Socket,
-                            carbon_buffer = []
+                            carbon_buffer = [],
+                            buffer_size = 0
                         }
                     };
                 {error, NewBuffer} ->
@@ -131,7 +146,13 @@ handle_info(carbon_reconnect, #state{carbon_buffer = Buffer} = State) ->
                         ?TCP_RECONNECTION_INTERVAL,
                         carbon_reconnect
                     ),
-                    {noreply, State#state{carbon_buffer = NewBuffer}}
+                    {
+                        noreply,
+                        State#state{
+                            carbon_buffer = NewBuffer,
+                            buffer_size = length(NewBuffer)
+                        }
+                    }
             end;
         {error, _} ->
             timer:send_after(?TCP_RECONNECTION_INTERVAL, carbon_reconnect),
