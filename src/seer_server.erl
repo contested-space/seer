@@ -41,11 +41,16 @@
 start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_) ->
+    {ok, Host} = inet:gethostname(),
+    BinHost =
+        case unicode:characters_to_binary(Host, latin1) of
+            Name when is_binary(Name) -> Name
+        end,
     InitialState =
         #state{
             mode = ?ENV(?ENV_MODE, ?DEFAULT_MODE),
             prefix = ?ENV(?ENV_PREFIX, ?DEFAULT_PREFIX),
-            host = ?ENV(?ENV_HOST, ?DEFAULT_HOST),
+            host = BinHost,
             poll_interval = ?ENV(?ENV_POLL_INTERVAL, ?DEFAULT_POLL_INTERVAL),
             max_buffer_size =
                 ?ENV(?ENV_MAX_BUFFER_SIZE, ?DEFAULT_MAX_BUFFER_SIZE)
