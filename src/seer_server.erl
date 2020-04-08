@@ -34,7 +34,7 @@ init(_) ->
                           poll_interval = ?ENV(?ENV_POLL_INTERVAL, ?DEFAULT_POLL_INTERVAL),
                           max_buffer_size = ?ENV(?ENV_MAX_BUFFER_SIZE, ?DEFAULT_MAX_BUFFER_SIZE)},
     self() ! setup,
-    {ok, InitialState, 0}.
+    {ok, InitialState}.
 
 handle_call(_, _From, State) ->
     {reply, {error, undefined_call}, State}.
@@ -163,4 +163,3 @@ carbon_send_batch(Socket, [Metric | MetricStrings], UnsentStrings) ->
       {error, _} ->
           carbon_send_batch(Socket, MetricStrings, [Metric | UnsentStrings])
     end.
-
