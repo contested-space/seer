@@ -163,3 +163,4 @@ carbon_send_batch(Socket, [Metric | MetricStrings], UnsentStrings) ->
       {error, _} ->
           carbon_send_batch(Socket, MetricStrings, [Metric | UnsentStrings])
     end.
+

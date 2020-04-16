@@ -24,16 +24,18 @@ counter_inc(Counter, Val) ->
     {ok, Ref} = get_or_new(counter, Counter),
     atomics:add(Ref, 1, Val).
 
--spec dist_record(metric_name(), integer()) -> ok.
+-spec dist_record(metric_name(), integer()) -> ok | {error, term()}.
 dist_record(Dist, Val) ->
     {ok, Ref} = get_or_new(dist, Dist),
-    N = atomics:add_get(Ref, ?DIST_RESERVOIR_SIZE + 1, 1),
+    N = increment_reservoir_size(Ref),
     dist_record2(Ref, Val, N).
 
--spec dist_timing(metric_name(), erlang:timestamp()) -> ok.
+-spec dist_timing(metric_name(), erlang:timestamp()) -> ok | {error, term()}.
 dist_timing(Timing, TimeStamp) ->
     Delta = timer:now_diff(os:timestamp(), TimeStamp),
-    dist_record(Timing, Delta).
+    {ok, Ref} = get_or_new(dist_timing, Timing),
+    N = increment_reservoir_size(Ref),
+    dist_record2(Ref, Delta, N).
 
 -spec gauge_set(metric_name(), integer()) -> ok.
 gauge_set(Gauge, Val) ->
@@ -48,7 +50,8 @@ histo_record(Histo, Val) ->
 -spec histo_timing(metric_name(), erlang:timestamp()) -> ok.
 histo_timing(Histo, TimeStamp) ->
     Delta = timer:now_diff(os:timestamp(), TimeStamp),
-    histo_record(Histo, Delta).
+    {ok, Ref} = get_or_new(histo_timing, Histo),
+    histo_record2(Ref, Delta).
 
 -spec read(metric_type(), metric_name()) -> {ok, read_value()}.
 read(Type, Name) ->
@@ -60,7 +63,7 @@ read_all() ->
     [{Type, Name, read_metric(Type, Name, Ref)} || {{?MODULE, Name}, {Type, Ref}} <- persistent_term:get()].
 
 % private
--spec dist_record2(atomics:atomics_ref(), integer(), integer()) -> ok.
+-spec dist_record2(atomics:atomics_ref(), integer(), integer()) -> ok | {error, term()}.
 dist_record2(Ref, Val, N) when N =< ?DIST_RESERVOIR_SIZE ->
     atomics:put(Ref, N, Val);
 dist_record2(Ref, Val, N) when N >= 1 andalso N =< 4294967295 ->
@@ -69,7 +72,9 @@ dist_record2(Ref, Val, N) when N >= 1 andalso N =< 4294967295 ->
           atomics:put(Ref, X, Val);
       _ ->
           ok
-    end.
+    end;
+dist_record2(_Ref, _Val, _N) ->
+    {error, overflow}.
 
 -spec get_or_new(metric_type(), metric_name()) -> {ok, atomics:atomics_ref()} | {error, term()}.
 get_or_new(Type, Name) ->
@@ -128,6 +133,10 @@ histo_record2(Ref, Val) ->
     Idx = ceil(math:log2(Val)) + 1,
     atomics:add(Ref, Idx, 1).
 
+-spec increment_reservoir_size(atomics:atomics_ref()) -> integer().
+increment_reservoir_size(Ref) ->
+    atomics:add_get(Ref, ?DIST_RESERVOIR_SIZE + 1, 1).
+
 -spec new(metric_type(), metric_name()) -> atomics:atomics_ref().
 new(counter, Name) ->
     Ref = atomics:new(1, [{signed, false}]),
@@ -142,9 +151,17 @@ new(dist, Name) ->
     Ref = atomics:new(?DIST_RESERVOIR_SIZE + 1, [{signed, true}]),
     persistent_term:put({?MODULE, Name}, {dist, Ref}),
     Ref;
+new(dist_timing, Name) ->
+    Ref = atomics:new(?DIST_RESERVOIR_SIZE + 1, [{signed, true}]),
+    persistent_term:put({?MODULE, Name}, {dist_timing, Ref}),
+    Ref;
 new(histo, Name) ->
     Ref = atomics:new(?HISTO_NUM_BUCKETS, [{signed, false}]),
     persistent_term:put({?MODULE, Name}, {histo, Ref}),
+    Ref;
+new(histo_timing, Name) ->
+    Ref = atomics:new(?HISTO_NUM_BUCKETS, [{signed, false}]),
+    persistent_term:put({?MODULE, Name}, {histo_timing, Ref}),
     Ref.
 
 -spec nths(dist_stats_indexes(), dist_samples()) -> dist_stats().
@@ -159,13 +176,8 @@ nths([Idx | IdxRest], Idx, [H | _] = Lst, Res) ->
 nths(Idxs = [Idx | _], Idx2, [_ | T] = _Lst, Res) when Idx > Idx2 ->
     nths(Idxs, Idx2 + 1, T, Res).
 
--spec read_metric(metric_type(), metric_name(), atomics:atomics_ref()) -> read_value().
-read_metric(counter, _Name, Ref) ->
-    atomics:exchange(Ref, 1, 0);
-read_metric(gauge, _Name, Ref) ->
-    atomics:get(Ref, 1);
-read_metric(dist, Name, Ref) ->
-    new(dist, Name),
+-spec read_dist(atomics:atomics_ref()) -> read_value().
+read_dist(Ref) ->
     case atomics:get(Ref, ?DIST_RESERVOIR_SIZE + 1) of
       0 ->
           empty;
@@ -179,9 +191,10 @@ read_metric(dist, Name, Ref) ->
                                             nths(summary_stats_idxs(N, ?DIST_RESERVOIR_SIZE), SortedSamples)
                                       end,
           #{n_samples => N, min => Min, max => Max, p50 => P50, p90 => P90, p99 => P99}
-    end;
-read_metric(histo, Name, Ref) ->
-    new(histo, Name),
+    end.
+
+-spec read_histo(atomics:atomics_ref()) -> read_value().
+read_histo(Ref) ->
     % Buckets must be in descending order
     {Buckets, N} = lists:foldl(fun (Idx, {Bs, Sum}) ->
                                        case atomics:get(Ref, Idx) of
@@ -206,6 +219,24 @@ read_metric(histo, Name, Ref) ->
           Map = maps:from_list(Buckets),
           Map#{percentiles => Percentiles, n_samples => N}
     end.
+
+-spec read_metric(metric_type(), metric_name(), atomics:atomics_ref()) -> read_value().
+read_metric(counter, _Name, Ref) ->
+    atomics:exchange(Ref, 1, 0);
+read_metric(gauge, _Name, Ref) ->
+    atomics:get(Ref, 1);
+read_metric(dist, Name, Ref) ->
+    new(dist, Name),
+    read_dist(Ref);
+read_metric(dist_timing, Name, Ref) ->
+    new(dist_timing, Name),
+    read_dist(Ref);
+read_metric(histo, Name, Ref) ->
+    new(histo, Name),
+    read_histo(Ref);
+read_metric(histo_timing, Name, Ref) ->
+    new(histo_timing, Name),
+    read_histo(Ref).
 
 -spec summary_stats_idxs(integer(), integer()) -> dist_stats().
 summary_stats_idxs(NumSamples, Size) when NumSamples < Size ->

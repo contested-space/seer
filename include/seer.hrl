@@ -17,7 +17,7 @@
 -type carbon_string() :: binary().
 -type carbon_batch() :: [carbon_string()].
 -type metric_name() :: binary().
--type metric_type() :: counter | gauge | dist | histo.
+-type metric_type() :: counter | gauge | dist | histo | dist_timing | histo_timing.
 -type read_value() :: term().
 -type read_metric() :: {metric_type(), metric_name(), read_value()}.
 -type histo_bucket_key() :: {non_neg_integer(), non_neg_integer()}.
