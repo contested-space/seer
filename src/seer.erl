@@ -58,9 +58,10 @@ read(Type, Name) ->
     {ok, Ref} = get(Type, Name),
     {ok, read_metric(Type, Name, Ref)}.
 
--spec read_all() -> [{metric_type(), metric_name(), read_value()}].
+-spec read_all() -> metric_batch().
 read_all() ->
-    [{Type, Name, read_metric(Type, Name, Ref)} || {{?MODULE, Name}, {Type, Ref}} <- persistent_term:get()].
+    {[{Type, Name, read_metric(Type, Name, Ref)} || {{?MODULE, Name}, {Type, Ref}} <- persistent_term:get()],
+     erlang:timestamp()}.
 
 % private
 -spec dist_record2(atomics:atomics_ref(), integer(), integer()) -> ok | {error, term()}.

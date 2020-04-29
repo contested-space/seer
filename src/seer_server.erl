@@ -54,13 +54,13 @@ handle_info(setup, #state{mode = Mode, poll_interval = Interval} = State) ->
     timer:send_after(Interval, Msg),
     {noreply, SetupState};
 handle_info(poll_stdout, #state{poll_interval = Interval} = State) ->
-    Metrics = seer:read_all(),
+    {Metrics, _Timestamp} = seer:read_all(),
     io:format("~w~n", [Metrics]),
     timer:send_after(Interval, poll_stdout),
     {noreply, State};
 handle_info(poll_carbon,
             #state{prefix = Prefix, host = Host, tcp_socket = Socket, poll_interval = Interval} = State) ->
-    Metrics = seer:read_all(),
+    {Metrics, _Timestamp} = seer:read_all(),
     CarbonStrings = seer_utils:carbon_format(Prefix, Host, Metrics),
     case carbon_send_batch(Socket, CarbonStrings) of
       ok ->
@@ -82,7 +82,7 @@ handle_info(poll_carbon_offline,
                    buffer_size = BufferSize,
                    max_buffer_size = MaxBufferSize} =
                 State) ->
-    Metrics = seer:read_all(),
+    {Metrics, _Timestamp} = seer:read_all(),
     CarbonStrings = seer_utils:carbon_format(Prefix, Host, Metrics),
     {NewBuffer, NewBufferSize} = case BufferSize < MaxBufferSize of
                                    true ->

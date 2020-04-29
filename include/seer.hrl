@@ -20,6 +20,7 @@
 -type metric_type() :: counter | gauge | dist | histo | dist_timing | histo_timing.
 -type read_value() :: term().
 -type read_metric() :: {metric_type(), metric_name(), read_value()}.
+-type metric_batch() :: {[read_metric()], erlang:timestamp()}.
 -type histo_bucket_key() :: {non_neg_integer(), non_neg_integer()}.
 -type histo_bucket() :: {histo_bucket_key(), non_neg_integer()}.
 -type histo_percentile() :: p50 | p90 | p99.
