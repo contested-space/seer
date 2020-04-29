@@ -9,11 +9,11 @@
 
 -record(state,
         {mode :: undefined | stdout | carbon | carbon_offline | carbon_reconnected,
-         prefix :: undefined | binary(),
-         host :: undefined | binary(),
-         tcp_socket :: undefined | gen_tcp:socket(),
+         prefix :: binary(),
+         host :: binary(),
+         tcp_socket :: gen_tcp:socket(),
          poll_interval :: undefined | non_neg_integer(),
-         carbon_buffer = [] :: [carbon_batch()],
+         carbon_buffer = [] :: [metric_batch()],
          buffer_size = 0 :: non_neg_integer(),
          max_buffer_size :: non_neg_integer()}).
 
@@ -58,44 +58,39 @@ handle_info(poll_stdout, #state{poll_interval = Interval} = State) ->
     io:format("~w~n", [Metrics]),
     timer:send_after(Interval, poll_stdout),
     {noreply, State};
-handle_info(poll_carbon,
-            #state{prefix = Prefix, host = Host, tcp_socket = Socket, poll_interval = Interval} = State) ->
-    {Metrics, _Timestamp} = seer:read_all(),
-    CarbonStrings = seer_utils:carbon_format(Prefix, Host, Metrics),
-    case carbon_send_batch(Socket, CarbonStrings) of
+handle_info(poll_carbon, #state{poll_interval = Interval} = State) ->
+    Poll = seer:read_all(),
+    case carbon_send_batch(Poll, State) of
       ok ->
           timer:send_after(Interval, poll_carbon),
           {noreply, State};
-      {error, UnsentStrings} ->
+      {error, UnsentMetrics} ->
           timer:send_after(Interval, poll_carbon_offline),
           timer:send_after(?TCP_RECONNECTION_INTERVAL, carbon_reconnect),
-          {noreply, State#state{mode = carbon_offline, carbon_buffer = [UnsentStrings]}}
+          {noreply, State#state{mode = carbon_offline, carbon_buffer = [UnsentMetrics]}}
     end;
 handle_info(poll_carbon_offline, #state{mode = carbon_reconnected} = State) ->
     self() ! poll_carbon,
     {noreply, State#state{mode = carbon}};
 handle_info(poll_carbon_offline,
-            #state{prefix = Prefix,
-                   host = Host,
-                   poll_interval = Interval,
+            #state{poll_interval = Interval,
                    carbon_buffer = Buffer,
                    buffer_size = BufferSize,
                    max_buffer_size = MaxBufferSize} =
                 State) ->
-    {Metrics, _Timestamp} = seer:read_all(),
-    CarbonStrings = seer_utils:carbon_format(Prefix, Host, Metrics),
+    Poll = seer:read_all(),
     {NewBuffer, NewBufferSize} = case BufferSize < MaxBufferSize of
                                    true ->
-                                       {[CarbonStrings | Buffer], BufferSize + 1};
+                                       {[Poll | Buffer], BufferSize + 1};
                                    false ->
-                                       {[CarbonStrings | lists:droplast(Buffer)], BufferSize}
+                                       {[Poll | lists:droplast(Buffer)], BufferSize}
                                  end,
     timer:send_after(Interval, poll_carbon_offline),
     {noreply, State#state{carbon_buffer = NewBuffer, buffer_size = NewBufferSize}};
-handle_info(carbon_reconnect, #state{carbon_buffer = Buffer} = State) ->
+handle_info(carbon_reconnect, State) ->
     case carbon_connect() of
       {ok, Socket} ->
-          case carbon_send_buffer(Socket, Buffer) of
+          case carbon_send_buffer(State#state{tcp_socket = Socket}) of
             ok ->
                 {noreply,
                  State#state{mode = carbon_reconnected, tcp_socket = Socket, carbon_buffer = [], buffer_size = 0}};
@@ -133,34 +128,37 @@ carbon_connect() ->
                     ?ENV(?ENV_CARBON_PORT, ?DEFAULT_CARBON_PORT),
                     [binary]).
 
--spec carbon_send_buffer(gen_tcp:socket(), [carbon_batch()]) -> ok | {error, [[binary()]]}.
-carbon_send_buffer(_Socket, []) ->
+-spec carbon_send_buffer(state()) -> ok | {error, [metric_batch()]}.
+carbon_send_buffer(#state{carbon_buffer = []}) ->
     ok;
-carbon_send_buffer(Socket, [Batch | Buffer]) ->
-    case carbon_send_batch(Socket, Batch) of
+carbon_send_buffer(#state{carbon_buffer = [Batch | Buffer]} = State) ->
+    case carbon_send_batch(Batch, State) of
       ok ->
-          carbon_send_buffer(Socket, Buffer);
-      {error, UnsentStrings} ->
-          {error, [UnsentStrings | Buffer]}
+          carbon_send_buffer(State#state{carbon_buffer = Buffer});
+      {error, UnsentBatch} ->
+          {error, [UnsentBatch | Buffer]}
     end.
 
--spec carbon_send_batch(gen_tcp:socket(), carbon_batch()) -> ok | {error, [binary()]}.
-carbon_send_batch(Socket, MetricStrings) ->
-    carbon_send_batch(Socket, MetricStrings, []).
+-spec carbon_send_batch(metric_batch(), state()) -> ok | {error, metric_batch()}.
+carbon_send_batch(MetricBatch, State) ->
+    carbon_send_batch(MetricBatch, State, []).
 
--spec carbon_send_batch(gen_tcp:socket(), carbon_batch(), carbon_batch()) -> ok | {error, carbon_batch()}.
-carbon_send_batch(_Socket, [], UnsentStrings) ->
-    case UnsentStrings of
+-spec carbon_send_batch(metric_batch(), state(), [read_metric()]) -> ok | {error, metric_batch()}.
+carbon_send_batch({[], Timestamp}, _State, UnsentMetrics) ->
+    case UnsentMetrics of
       [] ->
           ok;
       _ ->
-          {error, UnsentStrings}
+          {error, {UnsentMetrics, Timestamp}}
     end;
-carbon_send_batch(Socket, [Metric | MetricStrings], UnsentStrings) ->
-    case gen_tcp:send(Socket, Metric) of
+carbon_send_batch({[Metric | MetricBatch], Timestamp},
+                  #state{prefix = Prefix, host = Host, tcp_socket = Socket} = State,
+                  UnsentMetrics) ->
+    CarbonString = seer_utils:format_carbon_line(Prefix, Host, Metric, Timestamp),
+    case gen_tcp:send(Socket, CarbonString) of
       ok ->
-          carbon_send_batch(Socket, MetricStrings, UnsentStrings);
+          carbon_send_batch({MetricBatch, Timestamp}, State, UnsentMetrics);
       {error, _} ->
-          carbon_send_batch(Socket, MetricStrings, [Metric | UnsentStrings])
+          carbon_send_batch({MetricBatch, Timestamp}, State, [Metric | UnsentMetrics])
     end.
 

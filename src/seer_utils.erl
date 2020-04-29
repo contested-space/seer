@@ -2,18 +2,14 @@
 
 -include("seer.hrl").
 
--export([carbon_format/3]).
+-export([format_carbon_line/4]).
 
--spec carbon_format(binary(), binary(), [read_metric()]) -> carbon_batch().
-carbon_format(Prefix, Host, Metrics) ->
-    Timestamp = erlang:system_time(second),
-    lists:flatten([format_carbon_line(Prefix, Host, Metric, Timestamp) || Metric <- Metrics]).
-
-% private
--spec format_carbon_line(binary(), binary(), read_metric(), integer()) -> carbon_string() | carbon_batch().
-format_carbon_line(Prefix, Host, {Type, Name, Value}, Timestamp) ->
+-spec format_carbon_line(binary(), binary(), read_metric(), erlang:timestamp()) -> carbon_string() |
+                                                                                   carbon_batch().
+format_carbon_line(Prefix, Host, {Type, Name, Value}, {Mega, Sec, _}) ->
+    TimeInSeconds = Mega * 1000000 + Sec,
     MetricKey = metric_key(Prefix, Host, Name),
-    TimestampBin = integer_to_binary(Timestamp),
+    TimestampBin = integer_to_binary(TimeInSeconds),
     case Value of
       empty ->
           [];
@@ -34,6 +30,7 @@ format_carbon_line(Prefix, Host, {Type, Name, Value}, Timestamp) ->
           end
     end.
 
+% private
 -spec dist_carbon_line(binary(), map(), binary()) -> [carbon_string()].
 dist_carbon_line(MetricKey, Value, TsBin) ->
     [format_carbon_line(<<MetricKey/binary, ".", (atom_to_binary(Key, latin1))/binary>>,
