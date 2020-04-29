@@ -45,18 +45,22 @@ histo_record_test() ->
 read_all_test() ->
     ok = seer:counter_inc(<<"bob_the_counter">>, 10),
     ok = seer:gauge_set(<<"bob_the_gauge">>, 5),
+
+    {Metrics, _Timestamp} = seer:read_all(),
     Map = lists:foldl(fun ({Type, Name, Val}, Acc) ->
                               Acc#{{Type, Name} => Val}
                       end,
                       #{},
-                      seer:read_all()),
+                      Metrics),
     ?assertMatch(#{{counter, <<"bob_the_counter">>} := 10}, Map),
     ?assertMatch(#{{gauge, <<"bob_the_gauge">>} := 5}, Map),
+
+    {Metrics2, _Timestamp2} = seer:read_all(),
     Map2 = lists:foldl(fun ({Type, Name, Val}, Acc) ->
                                Acc#{{Type, Name} => Val}
                        end,
                        #{},
-                       seer:read_all()),
+                       Metrics2),
     ?assertMatch(#{{counter, <<"bob_the_counter">>} := 0}, Map2),
     ?assertMatch(#{{gauge, <<"bob_the_gauge">>} := 5}, Map2).
 
