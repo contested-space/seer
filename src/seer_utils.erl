@@ -20,7 +20,7 @@ format_carbon_line(Prefix, Host, {Type, Name, Value}, Timestamp) ->
       _ ->
           case Type of
             counter ->
-                format_carbon_line(<<MetricKey/binary, ".counter">>, integer_to_binary(Value), TimestampBin);
+                counter_carbon_line(<<MetricKey/binary, ".counter">>, Value, TimestampBin);
             gauge ->
                 format_carbon_line(<<MetricKey/binary, ".gauge">>, integer_to_binary(Value), TimestampBin);
             dist ->
@@ -33,6 +33,13 @@ format_carbon_line(Prefix, Host, {Type, Name, Value}, Timestamp) ->
                 histo_carbon_line(<<MetricKey/binary, ".histo_timing">>, Value, TimestampBin)
           end
     end.
+
+-spec counter_carbon_line(binary(), integer(), binary()) -> [carbon_string()].
+counter_carbon_line(MetricKey, Value, TsBin) ->
+    NbSec = ?ENV(?ENV_POLL_INTERVAL, ?DEFAULT_POLL_INTERVAL),
+    Rate = Value div NbSec,
+    [format_carbon_line(MetricKey, integer_to_binary(Value), TsBin),
+     format_carbon_line(<<MetricKey/binary, ".rate">>, integer_to_binary(Rate), TsBin)].
 
 -spec dist_carbon_line(binary(), map(), binary()) -> [carbon_string()].
 dist_carbon_line(MetricKey, Value, TsBin) ->
