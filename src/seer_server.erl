@@ -28,10 +28,11 @@ init(_) ->
                 Name when is_binary(Name) ->
                     Name
               end,
+    Interval = ?ENV(?ENV_POLL_INTERVAL, ?DEFAULT_POLL_INTERVAL) * 1000,
     InitialState = #state{mode = ?ENV(?ENV_MODE, ?DEFAULT_MODE),
                           prefix = ?ENV(?ENV_PREFIX, ?DEFAULT_PREFIX),
                           host = BinHost,
-                          poll_interval = ?ENV(?ENV_POLL_INTERVAL, ?DEFAULT_POLL_INTERVAL),
+                          poll_interval = Interval,
                           max_buffer_size = ?ENV(?ENV_MAX_BUFFER_SIZE, ?DEFAULT_MAX_BUFFER_SIZE)},
     self() ! setup,
     {ok, InitialState}.
