@@ -27,4 +27,3 @@
 -type dist_stats() :: [integer()].
 -type dist_stats_indexes() :: [integer()].
 -type dist_samples() :: [integer()].
-
